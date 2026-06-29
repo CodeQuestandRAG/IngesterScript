@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import csv
 import hashlib
 import json
 import logging
@@ -203,6 +204,7 @@ def ingest(
     chunk_size: int = 1200,
     overlap: int = 150,
     mode: str = "pdf",
+    write_csv: bool = False,
 ) -> int:
     if mode not in ("pdf", "c"):
         raise ValueError(f"unknown mode: {mode!r} (expected 'pdf' or 'c')")
@@ -320,6 +322,52 @@ def ingest(
     with manifest_path.open("w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
 
+    if write_csv:
+        bloom_levels_order = list(BLOOM_VERBS.keys())
+
+        chunks_csv_path = output_dir / "chunks.csv"
+        with chunks_csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "chunk_id", "document_id", "source_name", "source_path",
+                "chunk_index", "start_char", "end_char",
+                "bloom_primary_level", "bloom_levels",
+                *[f"bloom_score_{lvl}" for lvl in bloom_levels_order],
+                "bloom_cues", "text",
+            ])
+            for entry in all_chunks:
+                scores = entry["bloom_scores"]
+                writer.writerow([
+                    entry["chunk_id"], entry["document_id"],
+                    entry["source_name"], entry["source_path"],
+                    entry["chunk_index"], entry["start_char"], entry["end_char"],
+                    entry["bloom_primary_level"],
+                    ";".join(entry["bloom_levels"]),
+                    *[scores.get(lvl, 0) for lvl in bloom_levels_order],
+                    json.dumps(entry["bloom_cues"], ensure_ascii=False),
+                    entry["text"],
+                ])
+
+        docs_csv_path = output_dir / "documents.csv"
+        with docs_csv_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                "document_id", "source_name", "source_path", "extension",
+                "sha256", "char_count", "bloom_primary_level", "bloom_levels",
+                *[f"bloom_score_{lvl}" for lvl in bloom_levels_order],
+            ])
+            for doc in manifest_documents:
+                scores = doc["bloom_scores"]
+                writer.writerow([
+                    doc["document_id"], doc["source_name"], doc["source_path"],
+                    doc["extension"], doc["sha256"], doc["char_count"],
+                    doc["bloom_primary_level"],
+                    ";".join(doc["bloom_levels"]),
+                    *[scores.get(lvl, 0) for lvl in bloom_levels_order],
+                ])
+
+        logger.info("CSV tables written: chunks.csv, documents.csv")
+
     logger.info(
         "Ingestion complete: %d documents, %d chunks, %d errors",
         len(manifest_documents), total_chunks, len(errors),
@@ -342,11 +390,15 @@ if __name__ == "__main__":
     )
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--overlap", type=int, default=150)
+    parser.add_argument(
+        "--csv", dest="write_csv", action="store_true",
+        help="Also write chunks.csv and documents.csv (one row per chunk / document).",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     raise SystemExit(ingest(
         args.input_dir, args.output_dir,
         chunk_size=args.chunk_size, overlap=args.overlap,
-        mode=args.mode,
+        mode=args.mode, write_csv=args.write_csv,
     ))
