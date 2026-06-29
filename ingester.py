@@ -118,8 +118,11 @@ def extract_text(pdf_path: Path) -> str:
     return "\n\n".join(pages_text)
 
 
-# ponytail: C code is already text — read it, no AST/parse step needed.
-C_SOURCE_EXTENSIONS = (".c", ".h", ".txt")
+# ponytail: these inputs are already text — read as UTF-8, no parse step needed.
+TEXT_MODE_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "c": (".c", ".h", ".txt"),
+    "txt": (".txt",),
+}
 
 
 def extract_c_source(path: Path) -> str:
@@ -127,9 +130,9 @@ def extract_c_source(path: Path) -> str:
 
 
 def _discover_sources(input_path: Path, mode: str) -> list[Path]:
-    if mode == "c":
+    if mode in TEXT_MODE_EXTENSIONS:
         files = []
-        for ext in C_SOURCE_EXTENSIONS:
+        for ext in TEXT_MODE_EXTENSIONS[mode]:
             files.extend(input_path.rglob(f"*{ext}"))
         return sorted(files)
     return sorted(input_path.rglob("*.pdf"))
@@ -206,8 +209,8 @@ def ingest(
     mode: str = "pdf",
     write_csv: bool = False,
 ) -> int:
-    if mode not in ("pdf", "c"):
-        raise ValueError(f"unknown mode: {mode!r} (expected 'pdf' or 'c')")
+    if mode not in ("pdf", "c", "txt"):
+        raise ValueError(f"unknown mode: {mode!r} (expected 'pdf', 'c', or 'txt')")
     output_dir.mkdir(parents=True, exist_ok=True)
     source_paths = _discover_sources(input_path, mode)
     manifest_documents: list[dict] = []
@@ -222,7 +225,7 @@ def ingest(
             source_name = src_path.name
             source_rel = str(src_path)
 
-            if mode == "c":
+            if mode in ("c", "txt"):
                 text = extract_c_source(src_path)
             else:
                 text = extract_text(src_path)
@@ -380,13 +383,13 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Ingest PDFs or C source files into chunks.jsonl + manifest.json.",
+        description="Ingest PDFs or C/text files into chunks.jsonl + manifest.json.",
     )
     parser.add_argument("input_dir", type=Path, help="Directory of source files.")
     parser.add_argument("output_dir", type=Path, help="Where to write chunks.jsonl and manifest.json.")
     parser.add_argument(
-        "--mode", choices=("pdf", "c"), default="pdf",
-        help="Input type: 'pdf' (default) globs *.pdf; 'c' globs *.c, *.h, *.txt and reads them as text.",
+        "--mode", choices=("pdf", "c", "txt"), default="pdf",
+        help="Input type: 'pdf' globs *.pdf; 'c' globs *.c, *.h, *.txt; 'txt' globs *.txt (the latter two read as UTF-8 text).",
     )
     parser.add_argument("--chunk-size", type=int, default=1200)
     parser.add_argument("--overlap", type=int, default=150)
