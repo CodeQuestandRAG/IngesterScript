@@ -174,7 +174,10 @@ def classify_bloom(text: str) -> dict:
     for level, verbs in BLOOM_VERBS.items():
         matched = set()
         for verb in verbs:
-            if re.search(rf"\b{re.escape(verb)}\b", text, re.IGNORECASE):
+            # ponytail: crude suffix catch for common inflections (s/es/ing/ed/ies etc.)
+            base = re.escape(verb)
+            pattern = rf"\b{base}(?:s|es|ing|ed|d|ies|ied|ying)?\b"
+            if re.search(pattern, text, re.IGNORECASE):
                 matched.add(verb.lower())
         scores[level] = len(matched)
         cues[level] = sorted(matched)
